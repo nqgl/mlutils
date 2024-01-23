@@ -1,0 +1,1 @@
+timing utility plus utility that allows using functool's partial with hooks in transformer-lens without inducing significant performance degradations
