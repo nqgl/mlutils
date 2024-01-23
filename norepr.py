@@ -17,3 +17,9 @@ class MinRepr():
 
     def __call__(self, *args, **kwargs):
         return object.__getattribute__(self, "_______wrapped")(*args, **kwargs)
+    
+
+from functools import partial
+
+def fastpartial(*args, **kwargs): 
+    return MinRepr(partial(*args, **kwargs))
