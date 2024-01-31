@@ -31,10 +31,6 @@ class TimedFunc(object):
         return ret
 
 
-def timedfunc_wrapper(**kwargs):
-    return lambda f: TimedFunc(f, **kwargs)
-
-
 class ProfileFunc:
     def __init__(self, func, name, prof_once=True):
         self.func = func
@@ -66,3 +62,11 @@ class ProfileFunc:
             ret = self.func(*args, **kwargs)
         self.times_called += 1
         return ret
+
+
+def timedfunc_wrapper(**kwargs):
+    return lambda f: TimedFunc(f, **kwargs)
+
+
+def profilefunc_wrapper(**kwargs):
+    return lambda f: ProfileFunc(f, **kwargs)
