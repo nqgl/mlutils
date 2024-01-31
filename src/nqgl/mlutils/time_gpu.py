@@ -32,11 +32,22 @@ class TimedFunc(object):
 
 
 class ProfileFunc:
-    def __init__(self, func, name, prof_once=True):
+    def __init__(
+        self,
+        func,
+        name,
+        prof_once=True,
+        profile_memory=True,
+        record_shapes=True,
+        with_stack=True,
+    ):
         self.func = func
         self.t = None
         self.prof_once = prof_once
         self.times_called = 0
+        self.profile_memory = profile_memory
+        self.record_shapes = record_shapes
+        self.with_stack = with_stack
         if name is not None:
             self.name = name
         else:
@@ -54,6 +65,9 @@ class ProfileFunc:
                 activities=[
                     torch.profiler.ProfilerActivity.CUDA,
                 ],
+                profile_memory=self.profile_memory,
+                record_shapes=self.record_shapes,
+                with_stack=self.with_stack,
             ) as prof:
                 ret = self.func(*args, **kwargs)
             prof.export_chrome_trace(f"{self.name}_trace{self.times_called}.json")
