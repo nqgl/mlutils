@@ -64,6 +64,7 @@ class ProfileFunc:
             with torch.profiler.profile(
                 activities=[
                     torch.profiler.ProfilerActivity.CUDA,
+                    torch.profiler.ProfilerActivity.CPU,
                 ],
                 profile_memory=self.profile_memory,
                 record_shapes=self.record_shapes,
@@ -71,6 +72,16 @@ class ProfileFunc:
             ) as prof:
                 ret = self.func(*args, **kwargs)
             prof.export_chrome_trace(f"{self.name}_trace{self.times_called}.json")
+            print(
+                prof.key_averages(group_by_stack_n=5).table(
+                    sort_by="self_cpu_time_total", row_limit=5
+                )
+            )
+            print(
+                prof.key_averages(group_by_stack_n=5).table(
+                    sort_by="cuda_memory_usage", row_limit=20
+                )
+            )
 
         else:
             ret = self.func(*args, **kwargs)
