@@ -61,17 +61,24 @@ class ProfileFunc:
     def __call__(self, *args, **kwargs):
 
         if not (self.prof_once and self.times_called > 0):
-            with torch.profiler.profile(
-                activities=[
-                    torch.profiler.ProfilerActivity.CUDA,
-                    torch.profiler.ProfilerActivity.CPU,
-                ],
-                profile_memory=self.profile_memory,
-                record_shapes=self.record_shapes,
-                with_stack=self.with_stack,
-            ) as prof:
-                ret = self.func(*args, **kwargs)
+            try:
+                with torch.profiler.profile(
+                    activities=[
+                        torch.profiler.ProfilerActivity.CUDA,
+                        torch.profiler.ProfilerActivity.CPU,
+                    ],
+                    profile_memory=self.profile_memory,
+                    record_shapes=self.record_shapes,
+                    with_stack=self.with_stack,
+                ) as prof:
+                    ret = self.func(*args, **kwargs)
+            except Exception as e:
+                print(f"Exception in {self.name}: {e}")
+                prof.export_chrome_trace(f"{self.name}_trace{self.times_called}.json")
+                print("saved trace")
+                raise e
             prof.export_chrome_trace(f"{self.name}_trace{self.times_called}.json")
+            print("saved trace")
             print(
                 prof.key_averages(group_by_stack_n=5).table(
                     sort_by="self_cpu_time_total", row_limit=5
