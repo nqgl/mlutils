@@ -1,8 +1,12 @@
 import torch
+import time
+import inspect
+
+PRINT_DEFAULT = True
 
 
-class TimedFunc(object):
-    def __init__(self, func, name=None, print=False):
+class TimedFunc:
+    def __init__(self, func, name=None, cpu_time=False, print=PRINT_DEFAULT):
         self.func = func
         self.t = None
         if name is not None:
@@ -14,18 +18,23 @@ class TimedFunc(object):
         self.times = []
         self.print_on_call = print
         self.__name__ = f"TimedFunc<{self.name}>"
+        self.cpu_time = cpu_time
 
     def __call__(self, *args, **kwargs):
         start = torch.cuda.Event(enable_timing=True)
         end = torch.cuda.Event(enable_timing=True)
-
+        t0 = time.time()
         start.record()
         ret = self.func(*args, **kwargs)
         end.record()
+        t1 = time.time()
         torch.cuda.synchronize()
         t = start.elapsed_time(end)
         if self.name is not None and self.print_on_call:
-            print(self.name, ": ", t)
+            if self.cpu_time:
+                print(self.name, ": ", f"\tGPU={t} \tCPU={t1 - t0}")
+            else:
+                print(self.name, ": ", t)
         self.times.append(t)
         self.t = t
         return ret
@@ -35,7 +44,7 @@ class ProfileFunc:
     def __init__(
         self,
         func,
-        name,
+        name=None,
         prof_once=True,
         profile_memory=True,
         record_shapes=True,
@@ -56,7 +65,7 @@ class ProfileFunc:
             )
         self.times = []
         self.print_on_call = print
-        self.__name__ = f"TimedFunc<{self.name}>"
+        self.__name__ = f"ProfiledFunc<{self.name}>"
 
     def __call__(self, *args, **kwargs):
 
@@ -102,3 +111,9 @@ def timedfunc_wrapper(**kwargs):
 
 def profilefunc_wrapper(**kwargs):
     return lambda f: ProfileFunc(f, **kwargs)
+
+
+def time_methods(cls, **kwargs):
+    for name, func in inspect.getmembers(cls, inspect.ismethod):
+        setattr(cls, name, TimedFunc(func, name=f"{cls.__name__}::{name}", **kwargs))
+    return cls
