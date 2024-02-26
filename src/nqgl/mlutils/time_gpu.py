@@ -39,6 +39,28 @@ class TimedFunc:
         self.t = t
         return ret
 
+    def __repr__(self):
+        return self.__name__
+
+
+def timedfunc_wrapper(**kwargs):
+    return lambda f: TimedFunc(f, **kwargs)
+
+
+def profilefunc_wrapper(**kwargs):
+    return lambda f: ProfileFunc(f, **kwargs)
+
+
+def time_methods(cls=None, **kwargs):
+    if cls is None:
+        return lambda c: time_methods(c, **kwargs)
+    for name, func in inspect.getmembers(cls, callable):
+        if name.startswith("__") and not inspect.isfunction(func):
+            continue
+        print(name, func)
+        setattr(cls, name, TimedFunc(func, name=f"{cls.__name__}::{name}", **kwargs))
+    return cls
+
 
 class ProfileFunc:
     def __init__(
@@ -104,16 +126,5 @@ class ProfileFunc:
         self.times_called += 1
         return ret
 
-
-def timedfunc_wrapper(**kwargs):
-    return lambda f: TimedFunc(f, **kwargs)
-
-
-def profilefunc_wrapper(**kwargs):
-    return lambda f: ProfileFunc(f, **kwargs)
-
-
-def time_methods(cls, **kwargs):
-    for name, func in inspect.getmembers(cls, inspect.ismethod):
-        setattr(cls, name, TimedFunc(func, name=f"{cls.__name__}::{name}", **kwargs))
-    return cls
+    def test(self, x):
+        pass
