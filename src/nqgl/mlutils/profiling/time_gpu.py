@@ -1,6 +1,7 @@
 import torch
 import time
 import inspect
+from functools import wraps
 
 PRINT_DEFAULT = True
 
@@ -49,17 +50,6 @@ def timedfunc_wrapper(**kwargs):
 
 def profilefunc_wrapper(**kwargs):
     return lambda f: ProfileFunc(f, **kwargs)
-
-
-def time_methods(cls=None, **kwargs):
-    if cls is None:
-        return lambda c: time_methods(c, **kwargs)
-    for name, func in inspect.getmembers(cls, callable):
-        if name.startswith("__") and not inspect.isfunction(func):
-            continue
-        print(name, func)
-        setattr(cls, name, TimedFunc(func, name=f"{cls.__name__}::{name}", **kwargs))
-    return cls
 
 
 class ProfileFunc:
@@ -128,3 +118,10 @@ class ProfileFunc:
 
     def test(self, x):
         pass
+
+    def best(self, x):
+        pass
+
+
+# p = ProfileFunc(lambda x: torch.ones(x, device="cuda").pow(20), name="test")
+# print(p(4))
