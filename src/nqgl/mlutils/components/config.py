@@ -1,11 +1,11 @@
-from typing import Any
+from typing import Any, Set
 import wandb
 from dataclasses import dataclass, field
 
 
 @dataclass
 class WandbDynamicConfig:
-    _dontlog: set = field(default_factory=set)
+    _dontlog: Set[str] = field(default_factory=set)
     _name: str = None
     _fullname: str = None
 

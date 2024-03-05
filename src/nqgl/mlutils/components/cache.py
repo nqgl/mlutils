@@ -45,8 +45,20 @@ def listdictadd(da, db, unique=True):
 
 """
 A different way this could work, is like:
-cache.watch.attributenametowatch = True
+cache.watch.attributenametowatch = True/False
 yeah probably I will rewrite this to use Dict[str, Bool]
+
+
+also possibly todo if this seems useful:
+cache[i] -> cache (
+    subcache of first cache, default to watch same attributes 
+    (make as cache.clone() probably)
+)
+
+Cache c:
+ci:Cache = c[i]
+ci._parent == c
+ci._prev = c[i - 1] if i > 0 else None
 """
 
 
@@ -63,13 +75,27 @@ class Cache:
     _write_callbacks = ...
     _lazy_read_funcs = ...
 
-    def __init__(self, callbacks=None):
+    def __init__(self, callbacks=None, parent=None, subcache_index=None):
         self._NULL_ATTR: Any = ...
         self._unwatched_writes: set = set()
         self._ignored_names: set = set()
         self._write_callbacks: dict = callbacks or {}
         self._lazy_read_funcs: dict = {}
+        self._subcaches: dict = {}
+        self._parent: Cache = parent
+        self._subcache_index = subcache_index
         super().__setattr__("has", CacheHas(self))
+
+    def _watch(self, __name: str = None):
+        if __name is None:
+            return self._watching(__name)
+        if __name in self._lazy_read_funcs:
+            raise AttributeError(f"Attribute {__name} is lazy-rendered")
+        self.__setattr__(__name, ...)
+
+    def _watching(self, __name: str):
+        raise NotImplementedError("Not yet implemented")
+        return __name in self.__dict__ and not self._ignored(__name)
 
     def __setattr__(self, __name: str, __value: Any) -> None:
         if __name in self.__RESERVED_NAMES:
@@ -107,37 +133,20 @@ class Cache:
             raise AttributeError(
                 f"Cache overwrite error: Watched attribute {__name} already set to {getattr(self, __name)}"
             )
-        super().__setattr__(__name, __value)
+        if hasattr(self, __name):
+            super().__setattr__(__name, __value)
         if __name in self._write_callbacks:
             for hook in self._write_callbacks[__name]:
                 hook(self, __value)
 
-    def register_write_callback(self, __name: str, hook, ignore=False):
-        if __name.startswith("_"):
-            raise AttributeError("Cannot set hook on private attribute")
-        if __name in self._write_callbacks:
-            self._write_callbacks[__name].append(hook)
-        else:
-            self._write_callbacks[__name] = [hook]
-        if ignore:
-            self.add_cache_ignore(__name)
-
-    def add_cache_ignore(self, __name: str):
-        if __name.startswith("_"):
-            raise AttributeError("Cannot ignore private attribute")
-        self._ignored_names.add(__name)
-
-    def clone(self):
-        clone = self.__class__()
-        clone += self
-        return clone
-
     def _getfields(self):
         values = {}
         watching = set()
-        names = {name for name in self.__dict__ if not name.startswith("_")} - set(
-            self.__class__.__dict__.keys()
-        )
+        names = {
+            name
+            for name in self.__dict__
+            if not (name.startswith("_") or name in self.__RESERVED_NAMES)
+        } - set(self.__class__.__dict__.keys())
         for name in names:
             if self._has(name):
                 values[name] = getattr(self, name)
@@ -162,7 +171,52 @@ class Cache:
         self._lazy_read_funcs = listdictadd(
             self._lazy_read_funcs, other._lazy_read_funcs
         )
+        if not other._parent is None:
+            raise NotImplementedError("cache copy recieving _parent not yet supported")
+        if not other._subcaches == {}:
+            raise NotImplementedError(
+                "cache copy recieving _subcaches not yet supported"
+            )
         assert self._NULL_ATTR == other._NULL_ATTR
+        return self
+
+    def __getitem__(self, i):
+        if i in self._subcaches:
+            return self._subcaches[i]
+        else:
+            subcache = self.clone()
+            subcache._parent = self
+            self._subcaches[i] = subcache
+            return subcache
+
+    def register_write_callback(self, __name: str, hook, ignore=False):
+        if __name.startswith("_"):
+            raise AttributeError("Cannot set hook on private attribute")
+        if __name in self._write_callbacks:
+            self._write_callbacks[__name].append(hook)
+        else:
+            self._write_callbacks[__name] = [hook]
+        if ignore:
+            self.add_cache_ignore(__name)
+
+    def add_cache_ignore(self, __name: str):
+        if __name.startswith("_"):
+            raise AttributeError("Cannot ignore private attribute")
+        self._ignored_names.add(__name)
+
+    def clone(self):
+        clone = self.__class__()
+        clone += self
+        return clone
+
+    @property
+    def _prev_cache(self):
+        if self._parent is None:
+            raise AttributeError("No parent cache")
+        index = self._subcache_index - 1
+        if index not in self._parent._subcaches:
+            raise AttributeError("No previous cache")
+        return self._parent[index]
 
 
 def main():

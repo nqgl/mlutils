@@ -5,33 +5,57 @@ import torch
 import torch.nn as nn
 from jaxtyping import Float
 from torch import Tensor
+from dataclasses import dataclass
+from typing import Tuple, Any, Union, Optional, List
+import einops
 
-from nqgl.mlutils.components.linear_reset.actfreq_linear import ActsCache
+
+class ActsCache(Cache):
+    acts: Float[Tensor, "batch *inst d_out"] = ...
+
+
+@dataclass
+class CacheLayerConfig:
+    d_in: int = 0
+    d_out: int = 0
+    inst: Optional[List[int]] = None
 
 
 class CacheLayer(torch.nn.Module):
     def __init__(
         self,
         W: Float[Tensor, "*inst d_in d_out"],
-        b_out: Float[Tensor, "*#inst d_out"],
+        bias: Union[Float[Tensor, "*#inst d_out"], bool],
+        b_in=None,
         nonlinearity=torch.nn.ReLU(),
     ):
         super().__init__()
-        self.W = W if isinstance(W, nn.Parameter) else nn.Parameter(W)
-        # self.b_pre =   b_in if isinstance(b_in, nn.Parameter) else nn.Parameter(b_in)
-        self.b = b_out if isinstance(b_out, nn.Parameter) else nn.Parameter(b_out)
+        # TODO maybe assert all are parameters already?
+        self.W = nn.Parameter(W) if isinstance(W, Tensor) else W
+        self.ndim_inst = self.W.ndim - 2
+        self.b = nn.Parameter(bias) if isinstance(bias, Tensor) else bias
+        if b_in is None:
+            self.b_pre = 0
+        else:
+            self.b_pre = nn.Parameter(b_in) if isinstance(b_in, Tensor) else b_in
         self.nonlinearity = nonlinearity
-        self.W = nn.Parameter(W)
+        # self.W = nn.Parameter(W)
 
-    def forward(self, x, cache: Cache):
+    def forward(self, x, cache: Cache, **kwargs):
         cache.x = x
-        cache.pre_acts = (pre_acts := (x + self.b_pre) @ self.W + self.b_post)
+        x = x.view(
+            *(x.shape[:1] + (1,) * (self.ndim_inst - (x.ndim - 2)) + x.shape[1:])
+        )
+        # TODO become fully satisfied w the squeezing
+        mul = (x + self.b_pre).unsqueeze(-2) @ self.W
+        cache.pre_acts = (pre_acts := mul.squeeze(-2) + self.b)
         cache.acts = (acts := self.nonlinearity(pre_acts))
         return acts
 
 
 class CacheProcLayer(torch.nn.Module):
     def __init__(self, cachelayer: CacheLayer):
+        super().__init__()
         self.cachelayer = cachelayer
         self.train_cache_template = ActsCache()
         self.eval_cache_template = Cache()
@@ -39,7 +63,6 @@ class CacheProcLayer(torch.nn.Module):
         self.eval_process_after_call: set = set()
 
     def forward(self, *x, cache: Cache = None):
-
         cache = self.prepare_cache(cache)
         acts = self.cachelayer(*x, cache=cache)
         self._update(cache)
