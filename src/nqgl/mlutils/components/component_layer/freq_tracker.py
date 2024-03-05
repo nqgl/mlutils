@@ -9,7 +9,7 @@ from abc import ABC, abstractmethod
 from typing import List, Type, TypeVar
 
 
-class FreqMonitorComponent(LayerComponent):
+class FreqTracker(LayerComponent):
     _default_component_name = "activations"
 
     @abstractmethod

@@ -11,7 +11,7 @@ class LayerComponent(ABC):
     _default_component_name: str = ...
 
     @abstractmethod
-    def _update_from_cache(self, cache):
+    def _update_from_cache(self, cache: Cache, **kwargs):
         raise NotImplementedError
 
     @classmethod
@@ -38,8 +38,14 @@ class ComponentLayer(CacheProcLayer):
         self.module_components = nn.ModuleList(
             [c for c in components if isinstance(c, nn.Module)]
         )
+        self._init_register_components(components, names)
+
+    def _init_register_components(self, components, names):
         self._init_update_watched(components)
         self._init_update_attrs_from_components(components, names)
+        for c in components:
+            if hasattr(c, "_register_parent_layer"):
+                c._register_parent_layer(self)
 
     def _init_update_watched(self, components):
         for c in components:
@@ -65,5 +71,4 @@ class ComponentLayer(CacheProcLayer):
     def _update(self, cache, **kwargs):
         super()._update(cache, **kwargs)
         for c in self.components:
-            print(c)
-            c._update_from_cache(cache=cache, **kwargs)
+            c._update_from_cache(cache=cache, training=self.training, **kwargs)

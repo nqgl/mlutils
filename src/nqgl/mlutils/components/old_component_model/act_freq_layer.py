@@ -5,7 +5,9 @@ from nqgl.mlutils.components.cache_layer import CacheLayer, CacheProcLayer
 from typing import Any, Union, Optional
 from dataclasses import field
 
-from nqgl.mlutils.components.linear_reset.freq_component import FreqMonitorComponent
+from nqgl.mlutils.components.old_component_model.freq_component import (
+    FreqMonitorComponent,
+)
 
 
 class ActFreqLayer(CacheProcLayer):

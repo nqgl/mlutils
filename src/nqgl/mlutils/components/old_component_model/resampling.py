@@ -1,6 +1,8 @@
 from nqgl.mlutils.components.config import WandbDynamicConfig
-from nqgl.mlutils.components.linear_reset.freq_component import FreqMonitorComponent
-from nqgl.mlutils.components.linear_reset.act_freq_layer import ActFreqLayer
+from nqgl.mlutils.components.old_component_model.freq_component import (
+    FreqMonitorComponent,
+)
+from nqgl.mlutils.components.old_component_model.act_freq_layer import ActFreqLayer
 import torch.nn as nn
 from dataclasses import dataclass
 

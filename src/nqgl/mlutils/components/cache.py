@@ -59,6 +59,10 @@ Cache c:
 ci:Cache = c[i]
 ci._parent == c
 ci._prev = c[i - 1] if i > 0 else None
+
+
+
++++ rename to Stash?
 """
 
 
