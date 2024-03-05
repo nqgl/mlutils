@@ -43,6 +43,9 @@ class CountingFreqActComponent(FreqMonitorComponent):
             self._parent.train_process_after_call.add(self._update_from_cache)
             # self.parent.train_cache_template.register_write_callback("acts", self._update_count_freqs)
 
+    def get_dead_neurons(self, count_min, threshold):
+        return super().get_dead_neurons(count_min, threshold)
+
     def steps_counter(self, cache: ActsCache):
         return cache.acts.shape[0]
 
