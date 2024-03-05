@@ -28,8 +28,10 @@ class CacheLayer(torch.nn.Module):
         bias: Union[Float[Tensor, "*#inst d_out"], bool],
         b_in=None,
         nonlinearity=torch.nn.ReLU(),
+        cfg=None,
     ):
         super().__init__()
+        self.cfg = cfg
         # TODO maybe assert all are parameters already?
         self.W = nn.Parameter(W) if isinstance(W, Tensor) else W
         self.ndim_inst = self.W.ndim - 2
@@ -51,6 +53,19 @@ class CacheLayer(torch.nn.Module):
         cache.pre_acts = (pre_acts := mul.squeeze(-2) + self.b)
         cache.acts = (acts := self.nonlinearity(pre_acts))
         return acts
+
+    @classmethod
+    def from_dims(cls, d_in, d_out, b_in=None, inst=tuple(), cfg=None):
+        if cfg is None:
+            cfg = CacheLayerConfig(d_in, d_out, inst)
+        W = torch.randn(*inst, d_in, d_out)
+        b_out = torch.zeros(*inst, d_out)
+        b_in = torch.zeros(*inst, d_in)
+        return cls(W, b_out, b_in, cfg=cfg)
+
+    @classmethod
+    def from_cfg(cls, cfg: CacheLayerConfig):
+        return cls.from_dims(cfg.d_in, cfg.d_out, inst=cfg.inst, cfg=cfg)
 
 
 class CacheProcLayer(torch.nn.Module):
