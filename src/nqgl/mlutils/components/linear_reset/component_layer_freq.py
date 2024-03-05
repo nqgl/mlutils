@@ -1,7 +1,7 @@
 from nqgl.mlutils.components.cache_layer import ActsCache, CacheProcLayer, CacheLayer
 from nqgl.mlutils.components.component_layer import (
     LayerComponent,
-    CacheComponentProcLayer,
+    ComponentLayer,
 )
 
 import torch
@@ -74,7 +74,7 @@ class EMAFreqMixin: ...
 AFMC = TypeVar("AFMC", bound=FreqMonitorComponent)
 
 
-class ActFreqCLayer(CacheComponentProcLayer):
+class ActFreqCLayer(ComponentLayer):
     activations: AFMC
 
     def __init__(
