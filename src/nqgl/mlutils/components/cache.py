@@ -14,14 +14,22 @@ property
 
 class CacheHas:
     def __init__(self, cache):
-        self.cache: Cache = cache
+        self._cache: Cache = cache
 
     def __getattribute__(self, __name: str) -> Any:
-        if __name == "cache":
-            return super().__getattribute__("cache")
         if __name.startswith("_"):
             return super().__getattribute__(__name)
-        return self.cache._has(__name)
+        return self._cache._has(__name)
+
+
+class CacheWatching:
+    def __init__(self, cache):
+        self._cache: Cache = cache
+
+    def __getattribute__(self, __name: str) -> Any:
+        if __name.startswith("_"):
+            return super().__getattribute__(__name)
+        return self._cache._watching(__name)
 
 
 def cancopy(v):
@@ -62,7 +70,8 @@ ci._prev = c[i - 1] if i > 0 else None
 
 
 
-+++ rename to Stash?
+sibling cache way to access siblings and have it fail if you have the wrong key
+instead of doing prev_cache or .parent[self.key-1]
 """
 
 
@@ -78,7 +87,8 @@ class Cache:
     _ignored_names = ...
     _write_callbacks = ...
     _lazy_read_funcs = ...
-    has: CacheHas
+    has: CacheHas  # TypeVar this so it knows it's contents
+    watching: CacheWatching
 
     def __init__(self, callbacks=None, parent=None, subcache_index=None):
         self._NULL_ATTR: Any = ...
@@ -90,6 +100,7 @@ class Cache:
         self._parent: Cache = parent
         self._subcache_index = subcache_index
         super().__setattr__("has", CacheHas(self))
+        super().__setattr__("watching", CacheWatching(self))
 
     def _watch(self, __name: str = None):
         if __name is None:
@@ -224,6 +235,13 @@ class Cache:
         return self._parent[index]
 
 
+class CacheSpec(Cache):
+    def __init__(self):
+        raise Exception(
+            "Do not instantiate a CacheSpec, use it for interface hinting only"
+        )
+
+
 def main():
     class TC(Cache):
         tf = ...
@@ -253,3 +271,15 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
+def atest(c: Cache):
+    l = []
+    l.append(repr(c))
+    c2 = c.clone()
+    l.append(repr(c))
+    l.append(repr(c2))
+    c += c2
+    l.append(repr(c))
+    c += c
+    l.append(repr(c))
