@@ -8,6 +8,7 @@ from torch import Tensor
 from dataclasses import dataclass
 from typing import Tuple, Any, Union, Optional, List
 import einops
+from unpythonic import box
 
 
 class ActsCache(Cache):
@@ -69,11 +70,11 @@ class CacheLayer(torch.nn.Module):
 
 
 class CacheProcLayer(torch.nn.Module):
-    def __init__(self, cachelayer: CacheLayer):
+    def __init__(self, cachelayer: CacheLayer, train_cache=None, eval_cache=None):
         super().__init__()
         self.cachelayer = cachelayer
-        self.train_cache_template = ActsCache()
-        self.eval_cache_template = Cache()
+        self.train_cache_template: Cache = train_cache or ActsCache()
+        self.eval_cache_template: Cache = eval_cache or Cache()
         self.train_process_after_call: set = set()
         self.eval_process_after_call: set = set()
 
@@ -92,8 +93,12 @@ class CacheProcLayer(torch.nn.Module):
                 fn(cache)
 
     def prepare_cache(self, cache: Cache = None):
+        b, cache = (cache, None) if isinstance(cache, box) else (None, cache)
         if cache is None:
-            return self.generate_default_cache()
+            cache = self.generate_default_cache()
+            if b:
+                b << cache
+            return cache
         return self.register_to_external_cache(cache)
 
     def generate_default_cache(self):
