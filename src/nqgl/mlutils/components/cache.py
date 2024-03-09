@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, List
 from dataclasses import dataclass, field, Field
 from jaxtyping import Float, jaxtyped
 from torch import Tensor
@@ -16,20 +16,20 @@ class CacheHas:
     def __init__(self, cache):
         self._cache: Cache = cache
 
-    def __getattribute__(self, __name: str) -> Any:
-        if __name.startswith("_"):
-            return super().__getattribute__(__name)
-        return self._cache._has(__name)
+    def __getattribute__(self, _name: str) -> Any:
+        if _name.startswith("_"):
+            return super().__getattribute__(_name)
+        return self._cache._has(_name)
 
 
 class CacheWatching:
     def __init__(self, cache):
         self._cache: Cache = cache
 
-    def __getattribute__(self, __name: str) -> Any:
-        if __name.startswith("_"):
-            return super().__getattribute__(__name)
-        return self._cache._watching(__name)
+    def __getattribute__(self, _name: str) -> Any:
+        if _name.startswith("_"):
+            return super().__getattribute__(_name)
+        return self._cache._watching(_name)
 
 
 def cancopy(v):
@@ -43,7 +43,7 @@ def listdictcopy(dl):
 def listdictadd(da, db, unique=True):
     do = listdictcopy(da)
     for k, v in db.items():
-        if k in do:
+        if k in da:
             summed = do[k] + v
             do[k] = list(dict.fromkeys(summed)) if unique else summed
         else:
@@ -81,8 +81,33 @@ class Cache:
     Default value to denote a watched attribute (__NULL_ATTR) is ellipsis
     """
 
-    __RESERVED_NAMES = ["has"]
+    class NullType:
+        watched: bool
+
+    class NotWatched: ...
+
+    class Expected:
+        def __init__(self):
+            raise NotImplementedError
+
+        in_family: bool
+        in_ancestors: bool
+        in_descendants: bool
+        in_self: bool
+        in_siblings: bool
+        anywhere_if_watched: bool
+        each_if_watched: bool
+        exclude_from_log: bool
+
+        class InFamilty: ...
+
+    class ExpectedIfWatched:
+        def __init__(self):
+            raise NotImplementedError
+
+    __RESERVED_NAMES = ["has", "watching"]
     _NULL_ATTR = ...
+    _NULLTYPES = [NotWatched, Expected, ExpectedIfWatched, _NULL_ATTR]  # TODO these
     _unwatched_writes = ...
     _ignored_names = ...
     _write_callbacks = ...
@@ -91,7 +116,6 @@ class Cache:
     watching: CacheWatching
 
     def __init__(self, callbacks=None, parent=None, subcache_index=None):
-        self._NULL_ATTR: Any = ...
         self._unwatched_writes: set = set()
         self._ignored_names: set = set()
         self._write_callbacks: dict = callbacks or {}
@@ -102,58 +126,62 @@ class Cache:
         super().__setattr__("has", CacheHas(self))
         super().__setattr__("watching", CacheWatching(self))
 
-    def _watch(self, __name: str = None):
-        if __name is None:
-            return self._watching(__name)
-        if __name in self._lazy_read_funcs:
-            raise AttributeError(f"Attribute {__name} is lazy-rendered")
-        self.__setattr__(__name, ...)
+    def _watch(self, _name: str = None):
+        if isinstance(_name, list):
+            for name in _name:
+                self._watch(name)
+            return self
+        if _name is None:
+            return self._watching(_name)
+        if _name in self._lazy_read_funcs:
+            raise AttributeError(f"Attribute {_name} is lazy-rendered")
+        self.__setattr__(_name, ...)
+        return self
 
-    def _watching(self, __name: str):
-        raise NotImplementedError("Not yet implemented")
-        return __name in self.__dict__ and not self._ignored(__name)
+    def _watching(self, _name: str):
+        return hasattr(self, _name) and not self._ignored(_name)
+        # raise NotImplementedError("Not yet implemented")
 
-    def __setattr__(self, __name: str, __value: Any) -> None:
-        if __name in self.__RESERVED_NAMES:
-            raise AttributeError(f"Cannot set reserved attribute {__name}")
+    def __setattr__(self, _name: str, __value: Any) -> None:
+        if _name in self.__RESERVED_NAMES:
+            raise AttributeError(f"Cannot set reserved attribute {_name}")
 
-        if __name.startswith("_"):
-            return super().__setattr__(__name, __value)
+        if _name.startswith("_"):
+            return super().__setattr__(_name, __value)
 
         if __value == self._NULL_ATTR:
-            if hasattr(self, __name) and not getattr(self, __name) == self._NULL_ATTR:
+            if hasattr(self, _name) and not getattr(self, _name) in self._NULLTYPES:
                 raise AttributeError(
-                    f"Cache error: Tried to watch attribute {__name}, but {__name} already set to {getattr(self, __name)}"
+                    f"Cache error: Tried to watch attribute {_name}, but {_name} already set to {getattr(self, _name)}"
                 )
             else:
-                return super().__setattr__(__name, __value)
-        self._write(__name, __value)
+                return super().__setattr__(_name, __value)
+        self._write(_name, __value)
 
-    def _has(self, __name: str):
+    def _has(self, _name: str):
         return (
-            hasattr(self, __name)
-            and super().__getattribute__(__name) != self._NULL_ATTR
-        ) or __name in self._lazy_read_funcs
+            hasattr(self, _name) and super().__getattribute__(_name) != self._NULL_ATTR
+        ) or _name in self._lazy_read_funcs
 
-    def _ignored(self, __name: str):
-        return __name in self._ignored_names or not hasattr(self, __name)
+    def _ignored(self, _name: str):
+        return _name in self._ignored_names or not hasattr(self, _name)
 
-    def _write(self, __name: str, __value: Any):
-        if self._ignored(__name):
-            if __name in self._unwatched_writes:
+    def _write(self, _name: str, __value: Any):
+        if self._ignored(_name):
+            if _name in self._unwatched_writes:
                 raise AttributeError(
-                    f"Cache overwrite error on unwatched attribute: Unwatched attribute {__name} already written"
+                    f"Cache overwrite error on unwatched attribute: Unwatched attribute {_name} already written"
                 )
-            self._unwatched_writes.add(__name)
-        elif getattr(self, __name) != self._NULL_ATTR:
+            self._unwatched_writes.add(_name)
+        elif getattr(self, _name) != self._NULL_ATTR:
             raise AttributeError(
-                f"Cache overwrite error: Watched attribute {__name} already set to {getattr(self, __name)}"
+                f"Cache overwrite error: Watched attribute {_name} already set to {getattr(self, _name)}"
             )
-        if hasattr(self, __name):
-            super().__setattr__(__name, __value)
-        if __name in self._write_callbacks:
-            for hook in self._write_callbacks[__name]:
+        if _name in self._write_callbacks:
+            for hook in self._write_callbacks[_name]:
                 hook(self, __value)
+        if self._watching(_name):
+            super().__setattr__(_name, __value)
 
     def _getfields(self):
         values = {}
@@ -161,12 +189,13 @@ class Cache:
         names = {
             name
             for name in self.__dict__
-            if not (name.startswith("_") or name in self.__RESERVED_NAMES)
-        } - set(self.__class__.__dict__.keys())
+            if not ((name.startswith("_") or name in self.__RESERVED_NAMES))
+        }  # - set(self.__class__.__dict__.keys()) TODO was I correct to remove this?
         for name in names:
             if self._has(name):
                 values[name] = getattr(self, name)
-            watching.add(name)
+            if self._watching(name):
+                watching.add(name)
         return watching, values
 
     def __iadd__(self, other: "Cache"):
@@ -176,7 +205,8 @@ class Cache:
             )
         o_watching, o_values = other._getfields()
         for watch in o_watching:
-            self.__setattr__(watch, ...)
+            if not self._watching(watch):
+                self.__setattr__(watch, ...)
         for name, value in o_values.items():
             self.__setattr__(name, value)
         self._write_callbacks = listdictadd(
@@ -205,20 +235,20 @@ class Cache:
             self._subcaches[i] = subcache
             return subcache
 
-    def register_write_callback(self, __name: str, hook, ignore=False):
-        if __name.startswith("_"):
+    def register_write_callback(self, _name: str, hook, ignore=False):
+        if _name.startswith("_"):
             raise AttributeError("Cannot set hook on private attribute")
-        if __name in self._write_callbacks:
-            self._write_callbacks[__name].append(hook)
+        if _name in self._write_callbacks:
+            self._write_callbacks[_name].append(hook)
         else:
-            self._write_callbacks[__name] = [hook]
+            self._write_callbacks[_name] = [hook]
         if ignore:
-            self.add_cache_ignore(__name)
+            self.add_cache_ignore(_name)
 
-    def add_cache_ignore(self, __name: str):
-        if __name.startswith("_"):
+    def add_cache_ignore(self, _name: str):
+        if _name.startswith("_"):
             raise AttributeError("Cannot ignore private attribute")
-        self._ignored_names.add(__name)
+        self._ignored_names.add(_name)
 
     def clone(self):
         clone = self.__class__()
@@ -233,6 +263,26 @@ class Cache:
         if index not in self._parent._subcaches:
             raise AttributeError("No previous cache")
         return self._parent[index]
+
+    # def __iter__ ?
+    #
+
+    def logdict(self, name="cache", excluded: List[str] = [], itemize=True):
+        _, values = self._getfields()
+        for ex in excluded:
+            if ex in values:
+                values.pop(ex)
+        for k, v in values.items():
+            if isinstance(v, Tensor) and itemize:
+                values[k] = v.item()
+        subcaches = [
+            v.logdict(name=f"{name}/[{repr(k)}]", excluded=excluded, itemize=itemize)
+            for k, v in self._subcaches.items()
+        ]
+        cache = {f"{name}/{k}": v for k, v in values.items()}
+        for subcache_dict in subcaches:
+            cache.update(subcache_dict)
+        return cache
 
 
 class CacheSpec(Cache):

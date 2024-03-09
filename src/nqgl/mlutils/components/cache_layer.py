@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from typing import Tuple, Any, Union, Optional, List
 import einops
 from unpythonic import box
+from abc import abstractmethod, ABC
 
 
 class ActsCache(Cache):
@@ -20,6 +21,15 @@ class CacheLayerConfig:
     d_in: int = 0
     d_out: int = 0
     inst: Optional[List[int]] = None
+
+
+class CacheModule(torch.nn.Module, ABC):
+    def __init__(self):
+        super().__init__()
+
+    @abstractmethod
+    def forward(self, *x, cache: Cache = None, **kwargs):
+        raise NotImplementedError
 
 
 class CacheLayer(torch.nn.Module):
@@ -56,13 +66,15 @@ class CacheLayer(torch.nn.Module):
         return acts
 
     @classmethod
-    def from_dims(cls, d_in, d_out, b_in=None, inst=tuple(), cfg=None):
+    def from_dims(
+        cls, d_in, d_out, bias=True, b_in=False, inst=tuple(), cfg=None, **kwargs
+    ):
         if cfg is None:
             cfg = CacheLayerConfig(d_in, d_out, inst)
         W = torch.randn(*inst, d_in, d_out)
-        b_out = torch.zeros(*inst, d_out)
-        b_in = torch.zeros(*inst, d_in)
-        return cls(W, b_out, b_in, cfg=cfg)
+        b_out = torch.zeros(*inst, d_out) if bias else 0
+        b_in = torch.zeros(*inst, d_in) if b_in else None
+        return cls(W, b_out, b_in, cfg=cfg, **kwargs)
 
     @classmethod
     def from_cfg(cls, cfg: CacheLayerConfig):
@@ -70,7 +82,7 @@ class CacheLayer(torch.nn.Module):
 
 
 class CacheProcLayer(torch.nn.Module):
-    def __init__(self, cachelayer: CacheLayer, train_cache=None, eval_cache=None):
+    def __init__(self, cachelayer: CacheModule, train_cache=None, eval_cache=None):
         super().__init__()
         self.cachelayer = cachelayer
         self.train_cache_template: Cache = train_cache or ActsCache()
