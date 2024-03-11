@@ -79,27 +79,3 @@ class CountingFreqTracker(FreqTracker):
     @property
     def freqs(self):
         return self.num_activations / (self._count + 1e-9)
-
-
-class EMAFreqMixin: ...
-
-
-AFMC = TypeVar("AFMC", bound=FreqTracker)
-
-
-class ActFreqCLayer(ComponentLayer):
-    activations: AFMC
-
-    def __init__(
-        self,
-        freq_act_tracker_class: Type[AFMC] = CountingFreqTracker,
-        extra_components: List[LayerComponent] = [],
-    ):
-        super().__init__(
-            CacheLayer.from_cfg(cfg),
-            [freq_act_tracker_class()] + extra_components,
-        )
-
-
-# afc = ActFreqCLayer(2, CLayerCountingFreqActComponent)
-# afc.activations.steps_counter

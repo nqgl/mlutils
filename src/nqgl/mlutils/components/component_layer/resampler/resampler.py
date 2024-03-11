@@ -5,7 +5,7 @@ from nqgl.mlutils.components.component_layer import LayerComponent, ComponentLay
 import torch.nn as nn
 from dataclasses import dataclass
 import torch
-from typing import Optional, Callable
+from typing import Optional, Callable, Tuple
 from abc import abstractmethod
 from torch import Tensor
 from jaxtyping import Int, Bool, Float
@@ -20,7 +20,7 @@ class ResamplerConfig(WandbDynamicConfig):
     check_frequency: int = 100
     norm_encoder_proportional_to_alive: bool = True
     reset_all_freqs_interval: int = 10000
-    reset_all_freqs_offset: int = 2000
+    reset_all_freqs_offset: int = 0
     normalized_encoder_multiplier: float = 0.2
 
 
@@ -152,8 +152,11 @@ class ResamplerComponent(LayerComponent):
             new_directions, dim=-1
         )  # just need to call norm dec after this
 
+    def get_dead_neurons_for_norm(self):
+        return self.get_dead_neurons()
+
     def proc_W_directions(self, new_directions: Float[Tensor, "nnz d_in"]):
-        dead = self.get_dead_neurons()
+        dead = self.get_dead_neurons_for_norm()
         if torch.all(dead):
             print("warning: all neurons dead")
             return F.normalize(new_directions, dim=-1)
@@ -175,12 +178,8 @@ class ResamplerComponent(LayerComponent):
         # if training:
         #     self._step()
         if (
-            self.T == self.cfg.reset_all_freqs_offset
-            or self.cfg.reset_all_freqs_interval
-            and (self.T - self.cfg.reset_all_freqs_offset)
-            % self.cfg.reset_all_freqs_interval
-            == 0
-        ):
+            self.T - self.cfg.reset_all_freqs_offset
+        ) % self.cfg.reset_all_freqs_interval == 0:
             self.reset_activation_frequencies()
 
         if self.is_check_step():
@@ -228,7 +227,10 @@ class ResamplingMethod(ResamplerComponent):
 
     def reset_neurons(self, new_directions: Tensor, to_reset: Tensor):
         super().reset_neurons(new_directions, to_reset)
-        self.reset_activation_frequencies(to_reset)
+        mask = self.get_dead_neurons()
+        mask[:] = False
+        mask[to_reset] = True
+        self.reset_activation_frequencies(mask)
 
     def _get_directions(self, cache: ResamplingCache, x, y_pred, y):
         return self.get_directions(cache, x, y_pred, y)
@@ -275,6 +277,8 @@ class GeneratedBatchResampler(ResamplingMethod):
 @dataclass
 class QueuedResamplerConfig(ResamplerConfig):
     resample_frequency: int = 100
+    resampling_cycle: Tuple[int, int] = 1, 1
+    append_to_queue: bool = True
 
 
 class QueuedResampler(ResamplingMethod):
@@ -292,6 +296,14 @@ class QueuedResampler(ResamplingMethod):
             and self.queued.shape[0] > 0
         )
 
+    def get_dead_neurons_for_norm(self):
+        if self.queued is None:
+            return self.get_dead_neurons()
+        mask = self.get_dead_neurons()
+        mask[:] = False
+        mask[self.queued] = True
+        return mask
+
     def check_dead(self):
         super().check_dead()
         self.queued = (
@@ -300,25 +312,37 @@ class QueuedResampler(ResamplingMethod):
                 sorted=False,
                 dim=0,
             )
-            if self.queued is not None
+            if self.queued is not None and self.cfg.append_to_queue
             else self.get_dead_neurons().nonzero()
         )
 
+    def _update_from_cache(self, cache: ResamplingCache, **kwargs):
+        cache.num_queued_for_reset = (
+            self.queued.shape[0] if self.queued is not None else 0
+        )
+        return super()._update_from_cache(cache, **kwargs)
+
     def get_neurons_to_resample(self):
-        if self.queued is not None:
+        if (
+            self.queued is not None
+            and self.T % self.cfg.resampling_cycle[1]
+            > self.cfg.resampling_cycle[1] - self.cfg.resampling_cycle[0]
+        ):
             q = self.queued[: self.cfg.num_to_resample]
             self.queued = self.queued[self.cfg.num_to_resample :]
             return q
         return None
 
 
-# @dataclass
-# class TopKResamplingConfig:
-#     resample_top_k: int = 128
+@dataclass
+class TopKResamplingConfig:
+    resample_top_k: int = None
+
+
 class TopKResampling(ResamplingMethod):
     def get_directions(self, cache, x, y_pred, y):
         ranking = self.get_ranking_metric(cache, x, y_pred, y)
-        k = self.cfg.num_to_resample
+        k = self.cfg.resample_top_k or self.cfg.num_to_resample
         indices = torch.topk(ranking, k, largest=True).indices
         return self.get_directions_for_indices(cache, x, y_pred, y, indices)
 
@@ -350,12 +374,28 @@ class YResamplingDirections(ResamplingMethod):
 
 class SVDResampling(ResamplingMethod):
     def get_directions(self, cache, x, y_pred, y):
+        print("x", x.shape)
+        print("y_pred", y_pred.shape)
+        print("y", y.shape)
         u, s, v = torch.svd(y - y_pred)
+        print("u", u.shape)
+        print("s", s.shape)
+        print("v", v.shape)
+        # k = (self.cfg.num_to_resample + 1) // 2
         k = self.cfg.num_to_resample
         sort = torch.argsort(s.abs(), descending=True)
+        # best_k_directions = v[sort[:k]] * s[sort[:k]].unsqueeze(-1)
+        print("v", v.shape)
         best_k_directions = v[sort[:k]] * s[sort[:k]].unsqueeze(-1)
-        return best_k_directions
+        print("bkd", best_k_directions.shape)
+        # perf = (best_k_directions @ (y - y_pred).transpose(-2, -1)).mean(
+        #     dim=-1
+        # )  # (k batch).mean(batch)
+        perf = ((y - y_pred) @ best_k_directions.transpose(-2, -1)).pow(3).mean(dim=0)
+        print("perf", perf.shape)
+        dirs = best_k_directions * torch.sign(perf).unsqueeze(-1)
         return dirs
-        perf = (dirs @ (y - y_pred).transpose(-2, -1)).pow(3).mean(dim=-1)
+
+        return torch.cat((best_k_directions, -best_k_directions), dim=0)
         signs = torch.sign(perf)
         return dirs * signs.unsqueeze(-1)
