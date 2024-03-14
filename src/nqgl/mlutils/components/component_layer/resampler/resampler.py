@@ -5,11 +5,12 @@ from nqgl.mlutils.components.component_layer import LayerComponent, ComponentLay
 import torch.nn as nn
 from dataclasses import dataclass
 import torch
-from typing import Optional, Callable, Tuple
+from typing import Optional
 from abc import abstractmethod
 from torch import Tensor
-from jaxtyping import Int, Bool, Float
+from jaxtyping import Bool, Float
 import torch.nn.functional as F
+from nqgl.mlutils.components.component_layer.resampler.adam_resetter import AdamResetter
 
 
 @dataclass
@@ -22,6 +23,9 @@ class ResamplerConfig(WandbDynamicConfig):
     reset_all_freqs_interval: int = 10000
     reset_all_freqs_offset: int = 0
     normalized_encoder_multiplier: float = 0.2
+    negative_bias_multiplier: float = 6
+    sq_ema_reset_ratio: float = 1
+    reset_adam: bool = True
 
 
 class ResamplingCache(CacheSpec):
@@ -42,11 +46,17 @@ class ResamplerComponent(LayerComponent):
         self,
         cfg: ResamplerConfig,
         W_next: Optional[nn.Parameter] = None,
+        get_optim_fn=None,
     ):
         self.cfg = cfg
         self.W_next = W_next
         self.T = 0
         self._layer: ComponentLayer = None
+        self.get_optim_fn = get_optim_fn
+
+    @property
+    def optim(self):
+        return self.get_optim_fn()
 
     def _register_parent_layer(self, layer: ComponentLayer):
         super()._register_parent_layer(layer)
@@ -98,20 +108,40 @@ class ResamplerComponent(LayerComponent):
         self,
         new_directions: Float[Tensor, "nnz d_in"],
         to_reset: Tensor,  # Int[Tensor] or Boool[Tensor]?
+        W_next_directions: Optional[Tensor] = None,
+        b_reset_values=None,
     ):
         if isinstance(to_reset, tuple):
-            self.reset_neurons_from_index(new_directions, to_reset)
+            self.reset_neurons_from_index(
+                new_directions,
+                to_reset,
+                W_next_directions=W_next_directions,
+                b_reset_values=b_reset_values,
+            )
         elif to_reset.dtype == torch.bool:
-            self.reset_neurons_from_mask(new_directions, to_reset)
+            self.reset_neurons_from_mask(
+                new_directions,
+                to_reset,
+                W_next_directions=W_next_directions,
+                b_reset_values=b_reset_values,
+            )
         else:
-            self.reset_neurons_from_index(new_directions, to_reset)
+            self.reset_neurons_from_index(
+                new_directions,
+                to_reset,
+                W_next_directions=W_next_directions,
+                b_reset_values=b_reset_values,
+            )
 
     @torch.no_grad()
     def reset_neurons_from_mask(
         self,
         new_directions: Float[Tensor, "nnz d_in"],
         to_reset: Bool[Tensor, "*#inst d_out"],
+        W_next_directions: Optional[Tensor] = None,
+        b_reset_values=None,
     ):  # this may be wrong
+        assert False, "not implemented"
         assert new_directions.shape[0] == torch.count_nonzero(to_reset)
         if self.W_next is not None:
             self.W_next.data[to_reset] = self.proc_W_next_directions(new_directions)
@@ -127,6 +157,8 @@ class ResamplerComponent(LayerComponent):
         self,
         new_directions: Float[Tensor, "nnz d_out"],
         to_reset: Bool[Tensor, "nnz d_out"],
+        W_next_directions: Optional[Tensor] = None,
+        b_reset_values=None,
     ):
         assert (
             isinstance(to_reset, tuple)
@@ -139,21 +171,35 @@ class ResamplerComponent(LayerComponent):
         if to_reset[0].shape[0] == 0:
             return
         if self.W_next is not None:
-            self.W_next.data[to_reset] = self.proc_W_next_directions(new_directions)
-        self._layer.cachelayer.W.data.transpose(-2, -1)[to_reset] = (
-            self.proc_W_directions(new_directions)
+            self.W_next.transpose(-2, -1).data[to_reset] = self.proc_W_next_directions(
+                new_directions if W_next_directions is None else W_next_directions
+            )
+        W_dirs = self.proc_W_directions(new_directions)
+        self._layer.cachelayer.W.data.transpose(-2, -1)[to_reset] = W_dirs
+        self._layer.cachelayer.b.data[to_reset] = self.proc_bias_directions(W_dirs)
+        if self.cfg.reset_adam:
+            self.reset_adam(to_reset=to_reset)
+
+    def reset_adam(self, to_reset):
+        dead = self.get_dead_neurons()
+        cl_resetter = AdamResetter(
+            self._layer.cachelayer, sq_ema_reset_ratio=self.cfg.sq_ema_reset_ratio
         )
-        self._layer.cachelayer.b.data[to_reset] = self.proc_bias_directions(
-            new_directions
-        )
+        cl_resetter.W.transpose(-2, -1)[to_reset](self.optim, alive_indices=~dead)
+        cl_resetter.b[to_reset](self.optim, alive_indices=~dead)
+
+        if self.W_next is not None:
+            self_resetter = AdamResetter(
+                self, sq_ema_reset_ratio=self.cfg.sq_ema_reset_ratio
+            )
+            self_resetter.W_next.transpose(-2, -1)[to_reset](
+                self.optim, alive_indices=~dead
+            )
+
+    # def proc_directions(self, W_dirs: Tensor, W_next_dirs: Optional[Tensor] = None, bias_values: Optional[Tensor] = None):
 
     def proc_W_next_directions(self, new_directions: Float[Tensor, "nnz d_out"]):
-        return F.normalize(
-            new_directions, dim=-1
-        )  # just need to call norm dec after this
-
-    def get_dead_neurons_for_norm(self):
-        return self.get_dead_neurons()
+        return F.normalize(new_directions, dim=-1)
 
     def proc_W_directions(self, new_directions: Float[Tensor, "nnz d_in"]):
         dead = self.get_dead_neurons_for_norm()
@@ -168,7 +214,12 @@ class ResamplerComponent(LayerComponent):
         )
 
     def proc_bias_directions(self, new_directions: Float[Tensor, "nnz d_out"]):
-        return 0
+        b = -1 * self.cfg.negative_bias_multiplier * new_directions[0].norm()
+        print("b", b)
+        return b
+
+    def get_dead_neurons_for_norm(self):
+        return self.get_dead_neurons()
 
     @abstractmethod
     def resample_callback(self, cache, x=None, y_pred=None, y=None): ...
@@ -197,8 +248,10 @@ class ResamplingMethod(ResamplerComponent):
     # _default_component_name = "resampling_method"
     # _requires_component = ["resampler"]
 
-    def __init__(self, cfg: ResamplerConfig, W_next: Optional[nn.Parameter] = None):
-        super().__init__(cfg=cfg, W_next=W_next)
+    def __init__(
+        self, cfg: ResamplerConfig, W_next: Optional[nn.Parameter] = None, **kwargs
+    ):
+        super().__init__(cfg=cfg, W_next=W_next, **kwargs)
         self.cumulative_num_resampled = 0
 
     # @abstractmethod
@@ -209,6 +262,15 @@ class ResamplingMethod(ResamplerComponent):
         y_pred = y_pred if y_pred is not None else cache._parent.y_pred
         dead = self.get_neurons_to_resample()
         directions = self._get_directions(cache, x, y_pred, y)
+        if isinstance(directions, tuple):
+            if len(directions) == 2:
+                directions, W_next_directions = directions
+                b_reset_values = None
+            else:
+                directions, W_next_directions, b_reset_values = directions
+        else:
+            W_next_directions = None
+            b_reset_values = None
         if dead is None or directions is None:
             cache.num_resampled = 0
             return
@@ -217,16 +279,32 @@ class ResamplingMethod(ResamplerComponent):
         else:
             to_reset = dead
         to_reset = to_reset[: min(directions.shape[0], self.cfg.num_to_resample)]
+        W_next_directions = (
+            W_next_directions[: to_reset.shape[0]]
+            if W_next_directions is not None
+            else None
+        )
+        b_reset_values = (
+            b_reset_values[: to_reset.shape[0]] if b_reset_values is not None else None
+        )
 
         directions = directions[: to_reset.shape[0]]
         cache.num_resampled = to_reset.shape[0]
         self.cumulative_num_resampled += to_reset.shape[0]
         cache.cumulative_num_resampled = self.cumulative_num_resampled
         to_reset = to_reset.unbind(-1)
-        self.reset_neurons(directions, to_reset)
+        self.reset_neurons(directions, to_reset, W_next_directions=W_next_directions)
 
-    def reset_neurons(self, new_directions: Tensor, to_reset: Tensor):
-        super().reset_neurons(new_directions, to_reset)
+    def reset_neurons(
+        self,
+        new_directions: Tensor,
+        to_reset: Tensor,
+        W_next_directions: Optional[Tensor] = None,
+        b_reset_values=None,
+    ):
+        super().reset_neurons(
+            new_directions, to_reset, W_next_directions=W_next_directions
+        )
         mask = self.get_dead_neurons()
         mask[:] = False
         mask[to_reset] = True
@@ -248,8 +326,9 @@ class GeneratedBatchResampler(ResamplingMethod):
         buffer,
         forward_model,
         W_next: Optional[nn.Parameter] = None,
+        **kwargs,
     ):
-        super().__init__(cfg=cfg, W_next=W_next)
+        super().__init__(cfg=cfg, W_next=W_next, **kwargs)
         self.buffer = buffer
         self.forward_model = forward_model
 
@@ -274,89 +353,6 @@ class GeneratedBatchResampler(ResamplingMethod):
         ...
 
 
-@dataclass
-class QueuedResamplerConfig(ResamplerConfig):
-    resample_frequency: int = 100
-    resampling_cycle: Tuple[int, int] = 1, 1
-    append_to_queue: bool = True
-
-
-class QueuedResampler(ResamplingMethod):
-    def __init__(
-        self, cfg: QueuedResamplerConfig, W_next: Optional[nn.Parameter] = None
-    ):
-        super().__init__(cfg=cfg, W_next=W_next)
-        self.queued = None
-
-    def is_resample_step(self):
-        return (
-            self.T % self.cfg.resample_frequency == 0
-            and self._layer.training
-            and self.queued is not None
-            and self.queued.shape[0] > 0
-        )
-
-    def get_dead_neurons_for_norm(self):
-        if self.queued is None:
-            return self.get_dead_neurons()
-        mask = self.get_dead_neurons()
-        mask[:] = False
-        mask[self.queued] = True
-        return mask
-
-    def check_dead(self):
-        super().check_dead()
-        self.queued = (
-            torch.unique(
-                torch.cat((self.queued, self.get_dead_neurons().nonzero())),
-                sorted=False,
-                dim=0,
-            )
-            if self.queued is not None and self.cfg.append_to_queue
-            else self.get_dead_neurons().nonzero()
-        )
-
-    def _update_from_cache(self, cache: ResamplingCache, **kwargs):
-        cache.num_queued_for_reset = (
-            self.queued.shape[0] if self.queued is not None else 0
-        )
-        return super()._update_from_cache(cache, **kwargs)
-
-    def get_neurons_to_resample(self):
-        if (
-            self.queued is not None
-            and self.T % self.cfg.resampling_cycle[1]
-            > self.cfg.resampling_cycle[1] - self.cfg.resampling_cycle[0]
-        ):
-            q = self.queued[: self.cfg.num_to_resample]
-            self.queued = self.queued[self.cfg.num_to_resample :]
-            return q
-        return None
-
-
-@dataclass
-class TopKResamplingConfig:
-    resample_top_k: int = None
-
-
-class TopKResampling(ResamplingMethod):
-    def get_directions(self, cache, x, y_pred, y):
-        ranking = self.get_ranking_metric(cache, x, y_pred, y)
-        k = self.cfg.resample_top_k or self.cfg.num_to_resample
-        indices = torch.topk(ranking, k, largest=True).indices
-        return self.get_directions_for_indices(cache, x, y_pred, y, indices)
-
-    # @abstractmethod
-    def get_ranking_metric(self, cache, x, y_pred, y):
-        return (y - y_pred).pow(2).mean(dim=-1)
-
-    def get_directions_for_indices(self, cache, x, y_pred, y, indices):
-        x = x[indices]
-        y_pred = y_pred[indices]
-        y = y[indices]
-        return super().get_directions(cache, x, y_pred, y)
-
-
 class RandomResamplingDirections(ResamplingMethod):
     def get_directions(self, cache, x, y_pred, y):
         return torch.randn(self.cfg.num_to_resample, x.shape[-1], device=x.device)
@@ -367,7 +363,17 @@ class DiffResamplingDirections(ResamplingMethod):
         return y - y_pred
 
 
+class DiffDecYEncResamplingDirections(ResamplingMethod):
+
+    def _get_directions(self, cache: ResamplingCache, x, y_pred, y):
+        return super()._get_directions(cache, cache.x, y_pred, y)
+
+    def get_directions(self, cache: Cache, x, y_pred, y):
+        return x, y - y_pred
+
+
 class YResamplingDirections(ResamplingMethod):
+
     def get_directions(self, cache, x, y_pred, y):
         return y
 
