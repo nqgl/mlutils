@@ -71,7 +71,7 @@ class CacheLayer(torch.nn.Module):
     ):
         if cfg is None:
             cfg = CacheLayerConfig(d_in, d_out, inst)
-        W = torch.randn(*inst, d_in, d_out)
+        W = torch.nn.init.kaiming_uniform_(torch.empty(*inst, d_in, d_out))
         b_out = torch.zeros(*inst, d_out) if bias else 0
         b_in = torch.zeros(*inst, d_in) if b_in else None
         return cls(W, b_out, b_in, cfg=cfg, **kwargs)

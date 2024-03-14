@@ -214,8 +214,18 @@ class ResamplerComponent(LayerComponent):
         )
 
     def proc_bias_directions(self, new_directions: Float[Tensor, "nnz d_out"]):
-        b = -1 * self.cfg.negative_bias_multiplier * new_directions[0].norm()
+        b = (
+            -1
+            * self.cfg.negative_bias_multiplier
+            * new_directions[0].pow(2).sum().pow(0.5)
+        )
         print("b", b)
+        print(new_directions[0].pow(2).sum().pow(0.5))
+        if len(new_directions) > 3:
+            print(new_directions[2].norm())
+            print(new_directions[3].norm())
+        print(new_directions.shape)
+        print("--")
         return b
 
     def get_dead_neurons_for_norm(self):

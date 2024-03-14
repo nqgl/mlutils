@@ -15,8 +15,10 @@ class RecentlyResampledTrackerConfig(ResamplerConfig):
 
 
 class RecentlyResampledTracker(ResamplingMethod):
-    def __init__(self, cfg: ResamplerConfig, W_next: Optional[nn.Parameter] = None):
-        super().__init__(cfg=cfg, W_next=W_next)
+    def __init__(
+        self, cfg: ResamplerConfig, W_next: Optional[nn.Parameter] = None, **kwargs
+    ):
+        super().__init__(cfg=cfg, W_next=W_next, **kwargs)
         self.recently_resampled = None
 
     def reset_neurons(self, new_directions: Tensor, to_reset: Tensor):

@@ -1,4 +1,4 @@
-from nqgl.mlutils.components.component_layer.resampler.recently_resampled import (
+from nqgl.mlutils.components.component_layer.resampler.methods.recently_resampled import (
     RecentlyResampledTracker,
     RecentlyResampledTrackerConfig,
 )
@@ -8,12 +8,23 @@ from nqgl.mlutils.components.component_layer.resampler.resampler import (
     ResamplerComponent,
     ResamplingMethod,
     GeneratedBatchResampler,
-    QueuedResamplerConfig,
-    QueuedResampler,
-    TopKResamplingConfig,
-    TopKResampling,
     RandomResamplingDirections,
     DiffResamplingDirections,
     YResamplingDirections,
     SVDResampling,
+)
+
+from nqgl.mlutils.components.component_layer.resampler.methods.orth_resampler import (
+    OrthDiffResampling,
+    OrthDiffResamplingConfig,
+)
+
+from nqgl.mlutils.components.component_layer.resampler.queued import (
+    QueuedResampler,
+    QueuedResamplerConfig,
+)
+
+from nqgl.mlutils.components.component_layer.resampler.methods.topk import (
+    TopKResamplingConfig,
+    TopKResampling,
 )

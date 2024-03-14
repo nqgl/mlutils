@@ -12,7 +12,7 @@ from dataclasses import dataclass
 @dataclass
 class EMAFreqTrackerConfig(WandbDynamicConfig):
     reset_to_freq: float = 1 / 768
-    initial_freq_value: float = 1e-4
+    initial_freq_value: float = 1e-5
     reset_ema_to_freq: float = 1 / 768
 
     # reset_to_count: int = 0

@@ -20,6 +20,10 @@ class LayerComponent(ABC):
     def bind_nonlayer_args(cls, **kwargs):
         return lambda layer: cls(layer=layer, **kwargs)
 
+    @classmethod
+    def bind_named_args(cls, **kwargs):
+        return lambda *a, **k: cls(*a, **kwargs, **k)
+
     def _register_parent_layer(self, layer: "ComponentLayer"):
         self._layer = layer
 
@@ -77,3 +81,10 @@ class ComponentLayer(CacheProcLayer):
         super()._update(cache, **kwargs)
         for c in self.components:
             c._update_from_cache(cache=cache, training=self.training, **kwargs)
+
+    def component_architectures(self):
+        components_mros = [c.__class__.__mro__ for c in self.components]
+        return [
+            [str(x).split("'")[1].split(".")[-1] for x in component_mro]
+            for component_mro in components_mros
+        ]
