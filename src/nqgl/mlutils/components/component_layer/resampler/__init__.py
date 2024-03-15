@@ -28,3 +28,8 @@ from nqgl.mlutils.components.component_layer.resampler.methods.topk import (
     TopKResamplingConfig,
     TopKResampling,
 )
+
+# from nqgl.mlutils.components.component_layer.resampler import methods
+from nqgl.mlutils.components.component_layer.resampler.methods.no_resample import (
+    NoResampling,
+)

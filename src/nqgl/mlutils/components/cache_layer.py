@@ -24,15 +24,13 @@ class CacheLayerConfig:
 
 
 class CacheModule(torch.nn.Module, ABC):
-    def __init__(self):
-        super().__init__()
 
     @abstractmethod
     def forward(self, *x, cache: Cache = None, **kwargs):
         raise NotImplementedError
 
 
-class CacheLayer(torch.nn.Module):
+class CacheLayer(CacheModule):
     def __init__(
         self,
         W: Float[Tensor, "*inst d_in d_out"],
@@ -81,7 +79,7 @@ class CacheLayer(torch.nn.Module):
         return cls.from_dims(cfg.d_in, cfg.d_out, inst=cfg.inst, cfg=cfg)
 
 
-class CacheProcLayer(torch.nn.Module):
+class CacheProcLayer(CacheModule):
     def __init__(self, cachelayer: CacheModule, train_cache=None, eval_cache=None):
         super().__init__()
         self.cachelayer = cachelayer

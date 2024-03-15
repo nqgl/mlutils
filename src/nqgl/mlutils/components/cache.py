@@ -217,9 +217,9 @@ class Cache:
         self._lazy_read_funcs = listdictadd(
             self._lazy_read_funcs, other._lazy_read_funcs
         )
-        if not other._parent is None:
-            raise NotImplementedError("cache copy recieving _parent not yet supported")
-        if not other._subcaches == {}:
+        if other._parent is not None and self._parent is not other:
+            raise NotImplementedError("cache copy receiving _parent not yet supported")
+        if not other._subcaches == {} and self._parent is not other:
             raise NotImplementedError(
                 "cache copy recieving _subcaches not yet supported"
             )
@@ -230,10 +230,18 @@ class Cache:
         if i in self._subcaches:
             return self._subcaches[i]
         else:
-            subcache = self.clone()
-            subcache._parent = self
+            subcache = self.clone(parent=True)
             self._subcaches[i] = subcache
             return subcache
+
+    @property
+    def _prev_cache(self):
+        if self._parent is None:
+            raise AttributeError("No parent cache")
+        index = self._subcache_index - 1
+        if index not in self._parent._subcaches:
+            raise AttributeError("No previous cache")
+        return self._parent[index]
 
     def register_write_callback(self, _name: str, hook, ignore=False):
         if _name.startswith("_"):
@@ -250,19 +258,12 @@ class Cache:
             raise AttributeError("Cannot ignore private attribute")
         self._ignored_names.add(_name)
 
-    def clone(self):
+    def clone(self, parent=False):
         clone = self.__class__()
+        if parent:
+            clone._parent = self
         clone += self
         return clone
-
-    @property
-    def _prev_cache(self):
-        if self._parent is None:
-            raise AttributeError("No parent cache")
-        index = self._subcache_index - 1
-        if index not in self._parent._subcaches:
-            raise AttributeError("No previous cache")
-        return self._parent[index]
 
     # def __iter__ ?
     #

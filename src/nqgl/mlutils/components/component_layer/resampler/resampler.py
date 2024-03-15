@@ -25,6 +25,8 @@ class ResamplerConfig(WandbDynamicConfig):
     normalized_encoder_multiplier: float = 0.2
     negative_bias_multiplier: float = 6
     sq_ema_reset_ratio: float = 1
+    bias_sq_ema_reset_ratio: float = None
+
     reset_adam: bool = True
 
 
@@ -186,7 +188,12 @@ class ResamplerComponent(LayerComponent):
             self._layer.cachelayer, sq_ema_reset_ratio=self.cfg.sq_ema_reset_ratio
         )
         cl_resetter.W.transpose(-2, -1)[to_reset](self.optim, alive_indices=~dead)
-        cl_resetter.b[to_reset](self.optim, alive_indices=~dead)
+        cl_resetter.b[to_reset](
+            self.optim,
+            alive_indices=~dead,
+            sq_ema_reset_ratio=self.cfg.bias_sq_ema_reset_ratio
+            or self.cfg.sq_ema_reset_ratio,
+        )
 
         if self.W_next is not None:
             self_resetter = AdamResetter(
