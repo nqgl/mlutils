@@ -274,9 +274,11 @@ class ResamplingMethod(ResamplerComponent):
     # @abstractmethod
     @torch.inference_mode()
     def resample_callback(self, cache: ResamplingCache, x=None, y_pred=None, y=None):
-        x = x if x is not None else cache._parent.x
-        y = y if y is not None else cache._parent.y
-        y_pred = y_pred if y_pred is not None else cache._parent.y_pred
+        x = x if x is not None else cache._ancestor.search("x")[0].x
+        y = y if y is not None else cache._ancestor.search("y")[0].y
+        y_pred = (
+            y_pred if y_pred is not None else cache._ancestor.search("y_pred")[0].y_pred
+        )
         dead = self.get_neurons_to_resample()
         directions = self._get_directions(cache, x, y_pred, y)
         if isinstance(directions, tuple):

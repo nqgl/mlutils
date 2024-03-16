@@ -285,6 +285,49 @@ class Cache:
             cache.update(subcache_dict)
         return cache
 
+    def fullkey(self):
+        """
+        returns a tuple of all the keys to get from parent to here
+        """
+        raise NotImplementedError
+
+    def search(self, attr):
+        """
+        returns all sub(or self)caches that have attr
+        usage
+        ```
+        l = []
+        for c in cache.search("a"):
+            l.append(c, c.a)
+        for c in cache.search("b"):
+            print(c.fullkey())
+        ```
+        """
+        l = []
+        nex = [self]
+        while nex:
+            cur = nex
+            nex = []
+            for c in cur:
+                if c._has(attr):
+                    l.append(c)
+                nex.extend(c._subcaches.values())
+        return l
+
+    def _search_children(self, attr):
+        l = []
+        for k, v in self._subcaches.items():
+            if v._has(attr):
+                l.append(v)
+        return l
+
+    @property
+    def _ancestor(self):
+        a = self
+        while a._parent is not None:
+            a = a._parent
+        return a
+
 
 class CacheSpec(Cache):
     def __init__(self):
