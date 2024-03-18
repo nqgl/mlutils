@@ -257,6 +257,7 @@ class Cache:
         if _name.startswith("_"):
             raise AttributeError("Cannot ignore private attribute")
         self._ignored_names.add(_name)
+        return self
 
     def clone(self, parent=False):
         clone = self.__class__()

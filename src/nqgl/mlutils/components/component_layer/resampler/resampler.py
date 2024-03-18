@@ -173,7 +173,7 @@ class ResamplerComponent(LayerComponent):
         if to_reset[0].shape[0] == 0:
             return
         if self.W_next is not None:
-            self.W_next.transpose(-2, -1).data[to_reset] = self.proc_W_next_directions(
+            self.W_next.data.transpose(-2, -1)[to_reset] = self.proc_W_next_directions(
                 new_directions if W_next_directions is None else W_next_directions
             )
         W_dirs = self.proc_W_directions(new_directions)
@@ -202,6 +202,7 @@ class ResamplerComponent(LayerComponent):
             self_resetter.W_next.transpose(-2, -1)[to_reset](
                 self.optim, alive_indices=~dead
             )
+            # self_resetter.W_next[to_reset](self.optim, alive_indices=~dead)
 
     # def proc_directions(self, W_dirs: Tensor, W_next_dirs: Optional[Tensor] = None, bias_values: Optional[Tensor] = None):
 
