@@ -182,8 +182,8 @@ class ResamplerComponent(LayerComponent):
         if self.cfg.reset_adam:
             self.reset_adam(to_reset=to_reset)
 
-    def reset_adam(self, to_reset):
-        dead = self.get_dead_neurons()
+    def reset_adam(self, to_reset, dead=None):
+        dead = dead if dead is not None else self.get_dead_neurons()
         cl_resetter = AdamResetter(
             self._layer.cachelayer, sq_ema_reset_ratio=self.cfg.sq_ema_reset_ratio
         )
@@ -257,6 +257,7 @@ class ResamplerComponent(LayerComponent):
     def get_neurons_to_resample(self):
         return self.get_dead_neurons()
 
+    @abstractmethod
     def check_dead(self):
         pass
 
