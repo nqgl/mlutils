@@ -7,9 +7,11 @@ class AdamResetter:
         self._sq_ema_reset_ratio = sq_ema_reset_ratio
 
     def __getattribute__(self, __name: str) -> torch.Any:
-        if __name == "_obj_to_reset_fields_of":
-            return super().__getattribute__("_obj_to_reset_fields_of")
-        return AdamParamResetter(getattr(self._obj_to_reset_fields_of, __name))
+        if __name in ["_obj_to_reset_fields_of", "_sq_ema_reset_ratio"]:
+            return super().__getattribute__(__name)
+        return AdamParamResetter(
+            getattr(self._obj_to_reset_fields_of, __name), self._sq_ema_reset_ratio
+        )
 
 
 class AdamParamResetter:
@@ -69,7 +71,9 @@ class AdamResetterCallable:
             ) / (eps + state["exp_avg_sq"].numel() - self.ind_numel() * ratio)
         else:
             alive = exp_sq[alive_indices]
-            exp_sq[self.indices] = (eps + torch.sum(alive)) / (eps + alive.numel())
+            exp_sq[self.indices] = (
+                sq_ema_reset_ratio * (eps + torch.sum(alive)) / (eps + alive.numel())
+            )
 
     def ind_numel(self):
         print("ind_numel called not implemented")
