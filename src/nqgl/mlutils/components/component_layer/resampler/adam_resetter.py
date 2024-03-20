@@ -43,7 +43,11 @@ class AdamResetterCallable:
 
     @torch.inference_mode()
     def __call__(
-        self, adam: torch.optim.RAdam, alive_indices=None, sq_ema_reset_ratio=None
+        self,
+        adam: torch.optim.RAdam,
+        alive_indices=None,
+        sq_ema_reset_ratio=None,
+        reset_momentum=True,
     ):
         state = adam.state[self.param]
         exp_avg = (
@@ -58,7 +62,8 @@ class AdamResetterCallable:
                 *self._transpose[0], **self._transpose[1]
             )
         )
-        exp_avg[self.indices] = 0  # zero momentum
+        if reset_momentum:
+            exp_avg[self.indices] = 0  # zero momentum
         eps = 1e-7
         ratio = 1
         sq_ema_reset_ratio = sq_ema_reset_ratio or self._sq_ema_reset_ratio
