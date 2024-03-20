@@ -60,7 +60,13 @@ class CacheLayer(CacheModule):
         # TODO become fully satisfied w the squeezing
         mul = (x + self.b_pre).unsqueeze(-2) @ self.W
         cache.pre_acts = (pre_acts := mul.squeeze(-2) + self.b)
-        cache.acts = (acts := self.nonlinearity(pre_acts))
+        cache.acts = (
+            acts := (
+                self.nonlinearity(pre_acts, cache=cache)
+                if isinstance(self.nonlinearity, CacheModule)
+                else self.nonlinearity(pre_acts)
+            )
+        )
         return acts
 
     @classmethod
