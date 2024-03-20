@@ -51,6 +51,36 @@ def listdictadd(da, db, unique=True):
     return do
 
 
+def dlcopy(dl):
+    if isinstance(dl, list):
+        return dl.copy()
+        # return [dlcopy(i) for i in dl]
+    if isinstance(dl, dict):
+        return {k: dlcopy(v) for k, v in dl.items()}
+    if cancopy(dl):
+        return dl.copy()
+    return dl
+
+
+def dlmerge(da, db, unique=True):
+    da = dlcopy(da)
+    for k, vb in db.items():
+        if k in da:
+            assert type(da[k]) == type(
+                vb
+            ), f"Type mismatch: {type(da[k])} and {type(vb)}"
+            if isinstance(vb, list):
+                summed = da[k] + vb
+                da[k] = list(dict.fromkeys(summed)) if unique else summed
+            elif isinstance(vb, dict):
+                da[k] = dlmerge(da[k], vb, unique=unique)
+            else:
+                raise Exception(f"dlmerge Cannot merge type {type(vb)}")
+        else:
+            da[k] = dlcopy(vb)
+    return da
+
+
 """
 A different way this could work, is like:
 cache.watch.attributenametowatch = True/False
@@ -178,8 +208,11 @@ class Cache:
                 f"Cache overwrite error: Watched attribute {_name} already set to {getattr(self, _name)}"
             )
         if _name in self._write_callbacks:
-            for hook in self._write_callbacks[_name]:
-                hook(self, __value)
+            for nice in sorted(self._write_callbacks[_name].keys()):
+                for hook in self._write_callbacks[_name][nice]:
+                    o = hook(self, __value)
+                    if o is not None:
+                        __value = o
         if self._watching(_name):
             super().__setattr__(_name, __value)
 
@@ -209,14 +242,10 @@ class Cache:
                 self.__setattr__(watch, ...)
         for name, value in o_values.items():
             self.__setattr__(name, value)
-        self._write_callbacks = listdictadd(
-            self._write_callbacks, other._write_callbacks
-        )
+        self._write_callbacks = dlmerge(self._write_callbacks, other._write_callbacks)
         self._unwatched_writes = self._unwatched_writes.union(other._unwatched_writes)
         self._ignored_names = self._ignored_names.union(other._ignored_names)
-        self._lazy_read_funcs = listdictadd(
-            self._lazy_read_funcs, other._lazy_read_funcs
-        )
+        self._lazy_read_funcs = dlmerge(self._lazy_read_funcs, other._lazy_read_funcs)
         if other._parent is not None and self._parent is not other:
             raise NotImplementedError("cache copy receiving _parent not yet supported")
         if not other._subcaches == {} and self._parent is not other:
@@ -243,13 +272,14 @@ class Cache:
             raise AttributeError("No previous cache")
         return self._parent[index]
 
-    def register_write_callback(self, _name: str, hook, ignore=False):
+    def register_write_callback(self, _name: str, hook, ignore=False, nice=0):
         if _name.startswith("_"):
             raise AttributeError("Cannot set hook on private attribute")
-        if _name in self._write_callbacks:
-            self._write_callbacks[_name].append(hook)
-        else:
-            self._write_callbacks[_name] = [hook]
+        if _name not in self._write_callbacks:
+            self._write_callbacks[_name] = {}
+        if nice not in self._write_callbacks[_name]:
+            self._write_callbacks[_name][nice] = []
+        self._write_callbacks[_name][nice].append(hook)
         if ignore:
             self.add_cache_ignore(_name)
 
