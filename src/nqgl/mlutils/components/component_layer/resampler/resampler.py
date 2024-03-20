@@ -182,25 +182,39 @@ class ResamplerComponent(LayerComponent):
         if self.cfg.reset_adam:
             self.reset_adam(to_reset=to_reset)
 
-    def reset_adam(self, to_reset, dead=None):
+    def reset_adam(
+        self,
+        to_reset,
+        dead=None,
+        sq_ema_reset_ratio=None,
+        bias_sq_ema_reset_ratio=None,
+        reset_momentum=True,
+    ):
         dead = dead if dead is not None else self.get_dead_neurons()
         cl_resetter = AdamResetter(
-            self._layer.cachelayer, sq_ema_reset_ratio=self.cfg.sq_ema_reset_ratio
+            self._layer.cachelayer,
+            sq_ema_reset_ratio=sq_ema_reset_ratio or self.cfg.sq_ema_reset_ratio,
         )
-        cl_resetter.W.transpose(-2, -1)[to_reset](self.optim, alive_indices=~dead)
+        cl_resetter.W.transpose(-2, -1)[to_reset](
+            self.optim, alive_indices=~dead, reset_momentum=reset_momentum
+        )
         cl_resetter.b[to_reset](
             self.optim,
             alive_indices=~dead,
-            sq_ema_reset_ratio=self.cfg.bias_sq_ema_reset_ratio
+            sq_ema_reset_ratio=bias_sq_ema_reset_ratio
+            or self.cfg.bias_sq_ema_reset_ratio
+            or sq_ema_reset_ratio
             or self.cfg.sq_ema_reset_ratio,
+            reset_momentum=reset_momentum,
         )
 
         if self.W_next is not None:
             self_resetter = AdamResetter(
-                self, sq_ema_reset_ratio=self.cfg.sq_ema_reset_ratio
+                self,
+                sq_ema_reset_ratio=sq_ema_reset_ratio or self.cfg.sq_ema_reset_ratio,
             )
             self_resetter.W_next.transpose(-2, -1)[to_reset](
-                self.optim, alive_indices=~dead
+                self.optim, alive_indices=~dead, reset_momentum=reset_momentum
             )
             # self_resetter.W_next[to_reset](self.optim, alive_indices=~dead)
 
